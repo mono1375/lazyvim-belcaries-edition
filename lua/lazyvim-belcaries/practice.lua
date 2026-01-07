@@ -573,53 +573,35 @@ local practice_modules = {
         detect = function()
           if not state.task_ready then return false end
           local current_float_count = 0
-          local has_hover_window = false
           for _, win in ipairs(vim.api.nvim_list_wins()) do
             -- Skip our own practice popup
             if win ~= state.popup_win then
               local config = vim.api.nvim_win_get_config(win)
               if config.relative ~= "" then
                 current_float_count = current_float_count + 1
-                -- Check if it looks like a hover/documentation window
-                local buf = vim.api.nvim_win_get_buf(win)
-                local ft = vim.api.nvim_buf_get_option(buf, "filetype")
-                local lines = vim.api.nvim_buf_get_lines(buf, 0, 5, false)
-                local content = table.concat(lines, " ")
-                -- LSP hover typically shows markdown or has docstring content
-                if ft == "markdown" or ft == "help" or content:find("def ") or content:find("Args:") or content:find("Returns:") or content:find("```") then
-                  has_hover_window = true
-                end
               end
             end
           end
-          -- Must have a NEW float that looks like documentation
-          return current_float_count > state.initial_float_count and has_hover_window
+          -- SUCCESS: A new floating window appeared (hover docs)
+          return current_float_count > state.initial_float_count
         end,
         detect_fail = function()
           if not state.task_ready then return false end
           local line = vim.api.nvim_win_get_cursor(0)[1]
-          -- If cursor moved (user pressed k/j) but no hover appeared = FAIL
-          if line ~= state.initial_line then
-            -- Check if hover window appeared
-            local has_hover = false
-            for _, win in ipairs(vim.api.nvim_list_wins()) do
-              if win ~= state.popup_win then
-                local config = vim.api.nvim_win_get_config(win)
-                if config.relative ~= "" then
-                  local buf = vim.api.nvim_win_get_buf(win)
-                  local ft = vim.api.nvim_buf_get_option(buf, "filetype")
-                  local lines = vim.api.nvim_buf_get_lines(buf, 0, 5, false)
-                  local content = table.concat(lines, " ")
-                  if ft == "markdown" or ft == "help" or content:find("def ") or content:find("Args:") then
-                    has_hover = true
-                  end
-                end
+          -- Count current floats
+          local current_float_count = 0
+          for _, win in ipairs(vim.api.nvim_list_wins()) do
+            if win ~= state.popup_win then
+              local config = vim.api.nvim_win_get_config(win)
+              if config.relative ~= "" then
+                current_float_count = current_float_count + 1
               end
             end
-            -- Cursor moved but no hover = wrong action
-            if not has_hover then
-              return true
-            end
+          end
+          -- FAIL: Cursor moved but NO new float appeared
+          -- (user pressed k/j instead of K)
+          if line ~= state.initial_line and current_float_count <= state.initial_float_count then
+            return true
           end
           return false
         end,
