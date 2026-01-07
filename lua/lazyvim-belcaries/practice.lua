@@ -4,6 +4,9 @@
 
 local M = {}
 
+-- Bookmark file path
+local bookmark_file = vim.fn.stdpath("data") .. "/lazyvim-belcaries-bookmark.json"
+
 -- Practice state
 local state = {
   active = false,
@@ -25,6 +28,56 @@ local state = {
   initial_line_count = nil,
   target_achieved = false,
 }
+
+-- ============================================================================
+-- BOOKMARK SYSTEM - Save/Load progress
+-- ============================================================================
+
+local function save_bookmark()
+  local data = {
+    current_module = state.current_module,
+    current_task = state.current_task,
+    total_completed = state.total_completed,
+    project_type = state.project_type,
+    timestamp = os.date("%Y-%m-%d %H:%M:%S"),
+  }
+  local json = vim.fn.json_encode(data)
+  local file = io.open(bookmark_file, "w")
+  if file then
+    file:write(json)
+    file:close()
+    vim.notify("📌 Progress saved: Module " .. state.current_module .. ", Task " .. state.current_task, vim.log.levels.INFO)
+  end
+end
+
+local function load_bookmark()
+  local file = io.open(bookmark_file, "r")
+  if file then
+    local content = file:read("*all")
+    file:close()
+    local ok, data = pcall(vim.fn.json_decode, content)
+    if ok and data then
+      return data
+    end
+  end
+  return nil
+end
+
+local function clear_bookmark()
+  os.remove(bookmark_file)
+end
+
+function M.bookmark()
+  if state.active then
+    save_bookmark()
+  else
+    vim.notify("No active practice session to bookmark", vim.log.levels.WARN)
+  end
+end
+
+function M.has_bookmark()
+  return load_bookmark() ~= nil
+end
 
 -- ============================================================================
 -- PROJECT TEMPLATE - Realistic Python codebase for practice
@@ -1760,6 +1813,10 @@ local function setup_autocommands()
   vim.keymap.set("n", "<leader>pq", function()
     if state.active then M.stop() end
   end, { desc = "Quit practice" })
+
+  vim.keymap.set("n", "<leader>pb", function()
+    if state.active then M.bookmark() end
+  end, { desc = "Bookmark progress" })
 end
 
 local function clear_autocommands()
@@ -1772,18 +1829,20 @@ local function clear_autocommands()
   pcall(vim.keymap.del, "n", "<leader>pn")
   pcall(vim.keymap.del, "n", "<leader>pp")
   pcall(vim.keymap.del, "n", "<leader>pq")
+  pcall(vim.keymap.del, "n", "<leader>pb")
 end
 
 -- ============================================================================
 -- PUBLIC API
 -- ============================================================================
 
-function M.start(project_type)
+function M.start(project_type, from_bookmark)
   project_type = project_type or "python"
 
   local project_path = create_project(project_type)
   if not project_path then return end
 
+  -- ALWAYS reset to fresh state
   state.active = true
   state.project_type = project_type
   state.project_path = project_path
@@ -1792,17 +1851,40 @@ function M.start(project_type)
   state.completed_tasks = {}
   state.total_completed = 0
 
+  -- Only load bookmark if explicitly requested
+  if from_bookmark then
+    local bookmark = load_bookmark()
+    if bookmark then
+      state.current_module = bookmark.current_module or 1
+      state.current_task = bookmark.current_task or 1
+      state.total_completed = bookmark.total_completed or 0
+      vim.notify("📌 Resumed from bookmark: Module " .. state.current_module .. ", Task " .. state.current_task, vim.log.levels.INFO)
+    end
+  end
+
   vim.cmd("cd " .. project_path)
   vim.cmd("edit " .. project_path .. "/README.md")
 
   setup_autocommands()
   show_instruction()
 
-  vim.notify(
-    string.format("🚀 Practice Started: %s\n\n%d modules, %d tasks\nComplete each action to advance!",
-      templates[project_type].name, #practice_modules, count_total_tasks()),
-    vim.log.levels.INFO
-  )
+  if not from_bookmark then
+    vim.notify(
+      string.format("🚀 Practice Started: %s\n\n%d modules, %d tasks\nComplete each action to advance!",
+        templates[project_type].name, #practice_modules, count_total_tasks()),
+      vim.log.levels.INFO
+    )
+  end
+end
+
+function M.resume()
+  local bookmark = load_bookmark()
+  if bookmark then
+    M.start(bookmark.project_type or "python", true)
+  else
+    vim.notify("No bookmark found. Starting fresh.", vim.log.levels.INFO)
+    M.start("python", false)
+  end
 end
 
 function M.skip_task()
@@ -1815,6 +1897,7 @@ end
 function M.complete_practice()
   state.active = false
   clear_autocommands()
+  clear_bookmark()  -- Clear bookmark on completion
 
   if state.popup_win and vim.api.nvim_win_is_valid(state.popup_win) then
     vim.api.nvim_win_close(state.popup_win, true)
