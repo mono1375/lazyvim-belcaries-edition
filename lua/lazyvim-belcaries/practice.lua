@@ -17,8 +17,9 @@ local state = {
   popup_buf = nil,
   autocommand_group = nil,
   -- Detection control
-  task_ready = false,      -- Set by setup(), checked by detect()
-  transitioning = false,   -- Blocks detection during task transitions
+  task_ready = false,        -- Set by setup(), checked by detect()
+  transitioning = false,     -- Blocks detection during task transitions
+  completion_pending = false, -- Blocks multiple completion calls
   -- Detection helpers
   initial_buffer_content = nil,
   initial_line_count = nil,
@@ -1492,6 +1493,7 @@ local function show_instruction()
   -- Reset task state before showing new task
   state.task_ready = false
   state.transitioning = false
+  state.completion_pending = false
   state.initial_line = nil
   state.initial_file = nil
   state.initial_buffer_content = nil
@@ -1661,11 +1663,15 @@ local function check_task_completion()
   if not state.active then return end
   if state.transitioning then return end  -- Block during task transitions
   if not state.task_ready then return end  -- Block until setup() has run
+  if state.completion_pending then return end  -- Block if already completing
 
   local task = get_current_task()
   if not task then return end
 
   if task.detect and task.detect() then
+    -- IMMEDIATELY block further completions before defer
+    state.completion_pending = true
+    state.task_ready = false
     vim.defer_fn(next_task, 150)
   end
 end
