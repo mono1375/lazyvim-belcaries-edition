@@ -522,7 +522,11 @@ local practice_modules = {
         title = "Open the Main Module",
         instruction = "Use `<leader>ff` to find and open app/main.py",
         hint = "Press Space+f+f, then type 'main' and select app/main.py",
+        setup = function()
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local name = vim.api.nvim_buf_get_name(0)
           return name:find("app/main%.py") ~= nil
         end,
@@ -532,10 +536,15 @@ local practice_modules = {
         title = "Go to the create_task Function",
         instruction = "Use `/def create_task` to search and jump to the function definition (line 9)",
         hint = "Type /def create_task and press Enter. The function is on line 9",
+        setup = function()
+          state.initial_line = vim.api.nvim_win_get_cursor(0)[1]
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local line = vim.api.nvim_win_get_cursor(0)[1]
-          -- create_task is on lines 9-33 in the generated file
-          return line >= 9 and line <= 33
+          -- Must have MOVED to lines 9-15 (the function signature area)
+          return line >= 9 and line <= 15 and line ~= state.initial_line
         end,
       },
       {
@@ -543,14 +552,27 @@ local practice_modules = {
         title = "View Function Documentation",
         instruction = "Press `K` on the function name to see its docstring",
         hint = "Cursor on 'create_task', then press K (capital)",
-        detect = function()
+        setup = function()
+          state.initial_float_count = 0
           for _, win in ipairs(vim.api.nvim_list_wins()) do
             local config = vim.api.nvim_win_get_config(win)
             if config.relative ~= "" then
-              return true
+              state.initial_float_count = state.initial_float_count + 1
             end
           end
-          return false
+          state.task_ready = true
+        end,
+        detect = function()
+          if not state.task_ready then return false end
+          local current_float_count = 0
+          for _, win in ipairs(vim.api.nvim_list_wins()) do
+            local config = vim.api.nvim_win_get_config(win)
+            if config.relative ~= "" then
+              current_float_count = current_float_count + 1
+            end
+          end
+          -- A NEW floating window must have appeared
+          return current_float_count > state.initial_float_count
         end,
       },
       {
@@ -558,13 +580,15 @@ local practice_modules = {
         title = "Jump to Definition",
         instruction = "Go to line 21 where `validate_input` is called, put cursor on it, press `gd` to jump to its definition",
         hint = "Type :21 to go to line 21, cursor on validate_input, then gd. Should open utils.py",
+        setup = function()
+          state.initial_file = vim.api.nvim_buf_get_name(0)
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local name = vim.api.nvim_buf_get_name(0)
-          -- Either in utils.py OR cursor is on a line with validate_input definition
-          if name:find("utils%.py") then
-            return true
-          end
-          return false
+          -- Must have CHANGED to utils.py
+          return name:find("utils%.py") ~= nil and not state.initial_file:find("utils%.py")
         end,
       },
       {
@@ -572,9 +596,15 @@ local practice_modules = {
         title = "Jump Back",
         instruction = "Press `Ctrl+o` to jump back to where you were in main.py",
         hint = "Ctrl+o jumps to previous location in jump list",
+        setup = function()
+          state.initial_file = vim.api.nvim_buf_get_name(0)
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local name = vim.api.nvim_buf_get_name(0)
-          return name:find("main%.py") ~= nil
+          -- Must have CHANGED back to main.py
+          return name:find("main%.py") ~= nil and not state.initial_file:find("main%.py")
         end,
       },
       {
@@ -582,7 +612,20 @@ local practice_modules = {
         title = "Find All References",
         instruction = "Put cursor on `format_response` and press `gr` to find all places it's used",
         hint = "Navigate to format_response, then gr shows all references",
+        setup = function()
+          state.had_telescope = false
+          for _, win in ipairs(vim.api.nvim_list_wins()) do
+            local buf = vim.api.nvim_win_get_buf(win)
+            local ft = vim.api.nvim_buf_get_option(buf, "filetype")
+            if ft == "TelescopePrompt" or ft == "qf" or ft == "trouble" then
+              state.had_telescope = true
+            end
+          end
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
+          if state.had_telescope then return false end  -- Already had it open
           for _, win in ipairs(vim.api.nvim_list_wins()) do
             local buf = vim.api.nvim_win_get_buf(win)
             local ft = vim.api.nvim_buf_get_option(buf, "filetype")
@@ -606,11 +649,19 @@ local practice_modules = {
         title = "Find the Deprecated Function",
         instruction = "In main.py, search for 'DEPRECATED' using `/DEPRECATED` (it's on line 69)",
         hint = "Type /DEPRECATED and press Enter. Should jump to line 69",
+        setup = function()
+          state.initial_line = vim.api.nvim_win_get_cursor(0)[1]
+          state.initial_search = vim.fn.getreg("/") or ""
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local line = vim.api.nvim_win_get_cursor(0)[1]
-          local search = vim.fn.getreg("/")
-          -- Either searched for it OR cursor is near line 69-73
-          return (search and search:find("DEPRECATED")) or (line >= 69 and line <= 73)
+          local search = vim.fn.getreg("/") or ""
+          -- Must have searched for DEPRECATED (new search) OR moved to line 69-73
+          local new_search = search:find("DEPRECATED") and not state.initial_search:find("DEPRECATED")
+          local moved_to_target = line >= 69 and line <= 73 and state.initial_line < 60
+          return new_search or moved_to_target
         end,
       },
       {
@@ -620,8 +671,10 @@ local practice_modules = {
         hint = "Press dd to delete the entire line",
         setup = function()
           state.initial_buffer_content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+          state.task_ready = true
         end,
         detect = function()
+          if not state.task_ready then return false end
           local content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
           local had_it = state.initial_buffer_content and state.initial_buffer_content:find("# DEPRECATED:")
           return had_it and not content:find("# DEPRECATED:")
@@ -634,10 +687,13 @@ local practice_modules = {
         hint = "Position inside the function, then dap deletes it. Or V to select lines, } to extend, d to delete",
         setup = function()
           state.initial_buffer_content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+          state.task_ready = true
         end,
         detect = function()
+          if not state.task_ready then return false end
           local content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
-          return not content:find("def old_get_all_tasks")
+          local had_it = state.initial_buffer_content and state.initial_buffer_content:find("def old_get_all_tasks")
+          return had_it and not content:find("def old_get_all_tasks")
         end,
       },
       {
@@ -645,9 +701,16 @@ local practice_modules = {
         title = "Change a String Value",
         instruction = "Go to line 39, find \"Task not found\", change it to \"Task does not exist\" using `ci\"`",
         hint = "Type :39 Enter, position cursor inside the quotes, ci\" deletes the text, type new text, Esc",
+        setup = function()
+          state.initial_buffer_content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
-          return content:find("Task does not exist")
+          -- Must be a NEW change (didn't have it before, has it now)
+          local had_it = state.initial_buffer_content and state.initial_buffer_content:find("Task does not exist")
+          return not had_it and content:find("Task does not exist")
         end,
       },
       {
@@ -655,11 +718,17 @@ local practice_modules = {
         title = "Change a Variable Name",
         instruction = "Go to line 53 in delete_task function, change 'result' to 'deleted_count' using `ciw`",
         hint = "Type :53 Enter, cursor on 'result', ciw deletes word, type 'deleted_count', Esc",
+        setup = function()
+          state.initial_buffer_content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
-          -- Check if deleted_count appears in delete_task area
+          -- Check if deleted_count is NEW in delete_task area
           local delete_section = content:match("def delete_task.-return format_response")
-          return delete_section and delete_section:find("deleted_count")
+          local had_it = state.initial_buffer_content and state.initial_buffer_content:find("deleted_count")
+          return not had_it and delete_section and delete_section:find("deleted_count")
         end,
       },
       {
@@ -667,10 +736,26 @@ local practice_modules = {
         title = "Undo Your Last Change",
         instruction = "Press `u` to undo the last change, then `Ctrl+r` to redo it",
         hint = "u undoes, Ctrl+r redoes",
+        setup = function()
+          state.initial_buffer_content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+          state.undo_count = 0
+          state.task_ready = true
+          -- Track undo events
+          vim.api.nvim_create_autocmd({"TextChanged"}, {
+            group = state.autocommand_group,
+            buffer = 0,
+            callback = function()
+              if state.task_ready then
+                state.undo_count = (state.undo_count or 0) + 1
+              end
+            end,
+            once = false,
+          })
+        end,
         detect = function()
-          -- Just check we're still in normal mode after some undo/redo
-          local mode = vim.api.nvim_get_mode().mode
-          return mode == "n"
+          if not state.task_ready then return false end
+          -- Require at least 2 changes (undo + redo)
+          return (state.undo_count or 0) >= 2
         end,
       },
     },
@@ -686,10 +771,15 @@ local practice_modules = {
         title = "Find the TODO Comment",
         instruction = "Search for 'TODO' to find the helper function that needs to be moved (line 74)",
         hint = "Type /TODO and press Enter. Should jump to line 74",
+        setup = function()
+          state.initial_line = vim.api.nvim_win_get_cursor(0)[1]
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local line = vim.api.nvim_win_get_cursor(0)[1]
-          -- TODO comment is on line 74, function on 75-81
-          return line >= 74 and line <= 81
+          -- Must MOVE to line 74-81 from elsewhere
+          return line >= 74 and line <= 81 and state.initial_line < 70
         end,
       },
       {
@@ -697,7 +787,11 @@ local practice_modules = {
         title = "Select the Function to Move",
         instruction = "Select the entire `calculate_completion_rate` function with `V` then `}` or use `vaf` if treesitter is available",
         hint = "Go to 'def calculate', then V to start line select, } to extend to end of paragraph",
+        setup = function()
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local mode = vim.api.nvim_get_mode().mode
           return mode == "V" or mode == "v"
         end,
@@ -707,9 +801,15 @@ local practice_modules = {
         title = "Yank the Selected Function",
         instruction = "Press `y` to yank (copy) the selected function",
         hint = "After selecting with V, press y to yank",
+        setup = function()
+          state.initial_reg = vim.fn.getreg('"') or ""
+          state.task_ready = true
+        end,
         detect = function()
-          local reg = vim.fn.getreg('"')
-          return reg and reg:find("def calculate_completion_rate")
+          if not state.task_ready then return false end
+          local reg = vim.fn.getreg('"') or ""
+          -- Must be NEW yank containing the function
+          return reg:find("def calculate_completion_rate") and not state.initial_reg:find("def calculate_completion_rate")
         end,
       },
       {
@@ -719,10 +819,13 @@ local practice_modules = {
         hint = "Or press gv to reselect, then d to delete. Also delete the TODO comment above it",
         setup = function()
           state.initial_buffer_content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+          state.task_ready = true
         end,
         detect = function()
+          if not state.task_ready then return false end
           local content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
-          return not content:find("def calculate_completion_rate")
+          local had_it = state.initial_buffer_content:find("def calculate_completion_rate")
+          return had_it and not content:find("def calculate_completion_rate")
         end,
       },
       {
@@ -730,9 +833,14 @@ local practice_modules = {
         title = "Open the Target File",
         instruction = "Open app/models.py where we'll paste the function (use `<leader>ff` or file explorer)",
         hint = "Space+f+f then type 'models'",
+        setup = function()
+          state.initial_file = vim.api.nvim_buf_get_name(0)
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local name = vim.api.nvim_buf_get_name(0)
-          return name:find("models%.py") ~= nil
+          return name:find("models%.py") ~= nil and not state.initial_file:find("models%.py")
         end,
       },
       {
@@ -740,10 +848,15 @@ local practice_modules = {
         title = "Find Where to Paste",
         instruction = "Search for 'PASTE_TARGET' using `/PASTE` - it's on line 73 in models.py",
         hint = "Type /PASTE and press Enter. Should be on line 73",
+        setup = function()
+          state.initial_line = vim.api.nvim_win_get_cursor(0)[1]
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local line = vim.api.nvim_win_get_cursor(0)[1]
-          -- PASTE_TARGET is on line 73 in models.py
-          return line >= 72 and line <= 74
+          -- Must MOVE to line 72-74
+          return line >= 72 and line <= 74 and state.initial_line ~= line
         end,
       },
       {
@@ -751,11 +864,17 @@ local practice_modules = {
         title = "Paste the Function",
         instruction = "Press `p` to paste the function below the PASTE_TARGET comment",
         hint = "Just press p in normal mode",
+        setup = function()
+          state.initial_buffer_content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local name = vim.api.nvim_buf_get_name(0)
           if name:find("models%.py") then
             local content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
-            return content:find("def calculate_completion_rate")
+            local had_it = state.initial_buffer_content:find("def calculate_completion_rate")
+            return not had_it and content:find("def calculate_completion_rate")
           end
           return false
         end,
@@ -773,9 +892,17 @@ local practice_modules = {
         title = "Search Word Under Cursor",
         instruction = "Open main.py, put cursor on 'format_response' and press `*` to search for all occurrences",
         hint = "Navigate to format_response, then * searches for the word",
+        setup = function()
+          state.initial_search = vim.fn.getreg("/") or ""
+          state.task_ready = true
+        end,
         detect = function()
-          local search = vim.fn.getreg("/")
-          return search and (search:find("format_response") or search:find("\\<format_response\\>"))
+          if not state.task_ready then return false end
+          local search = vim.fn.getreg("/") or ""
+          -- Must be a NEW search for format_response
+          local has_format = search:find("format_response") or search:find("\\<format_response\\>")
+          local had_format = state.initial_search:find("format_response") or state.initial_search:find("\\<format_response\\>")
+          return has_format and not had_format
         end,
       },
       {
@@ -783,9 +910,15 @@ local practice_modules = {
         title = "Navigate Between Matches",
         instruction = "Press `n` to go to next match, `N` for previous",
         hint = "n = next, N = previous match",
+        setup = function()
+          state.initial_line = vim.api.nvim_win_get_cursor(0)[1]
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local line = vim.api.nvim_win_get_cursor(0)[1]
-          return line > 20  -- Should have moved to a later occurrence
+          -- Must have MOVED from initial position
+          return line ~= state.initial_line
         end,
       },
       {
@@ -793,8 +926,14 @@ local practice_modules = {
         title = "Clear Search Highlight",
         instruction = "Press `<leader>ur` or type `:noh` to clear the search highlighting",
         hint = "Space+u+r or :noh Enter",
+        setup = function()
+          state.initial_hlsearch = vim.v.hlsearch
+          state.task_ready = true
+        end,
         detect = function()
-          return vim.v.hlsearch == 0
+          if not state.task_ready then return false end
+          -- Must have been ON and now OFF
+          return state.initial_hlsearch == 1 and vim.v.hlsearch == 0
         end,
       },
       {
@@ -802,12 +941,18 @@ local practice_modules = {
         title = "Replace in Entire File",
         instruction = "Replace all 'task_id' with 'id' using `:%s/task_id/id/gc` (with confirmation)",
         hint = ":%s/task_id/id/gc - the 'c' flag asks for confirmation each time",
-        detect = function()
-          -- Check if we're in cmdline mode or if some replacements happened
+        setup = function()
           local content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
-          -- Count occurrences - if user did replacements, task_id count should decrease
           local _, count = content:gsub("task_id", "")
-          return count < 10  -- File originally has many task_id occurrences
+          state.initial_task_id_count = count
+          state.task_ready = true
+        end,
+        detect = function()
+          if not state.task_ready then return false end
+          local content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+          local _, count = content:gsub("task_id", "")
+          -- Must have REDUCED the count (at least one replacement)
+          return count < state.initial_task_id_count
         end,
       },
       {
@@ -815,7 +960,20 @@ local practice_modules = {
         title = "Search Across All Files",
         instruction = "Use `<leader>sg` (live grep) to search for 'validate' across the entire project",
         hint = "Space+s+g opens live grep, type 'validate'",
+        setup = function()
+          state.had_telescope = false
+          for _, win in ipairs(vim.api.nvim_list_wins()) do
+            local buf = vim.api.nvim_win_get_buf(win)
+            local ft = vim.api.nvim_buf_get_option(buf, "filetype")
+            if ft == "TelescopePrompt" then
+              state.had_telescope = true
+            end
+          end
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
+          if state.had_telescope then return false end
           for _, win in ipairs(vim.api.nvim_list_wins()) do
             local buf = vim.api.nvim_win_get_buf(win)
             local ft = vim.api.nvim_buf_get_option(buf, "filetype")
@@ -839,8 +997,14 @@ local practice_modules = {
         title = "Create Vertical Split",
         instruction = "Press `<leader>|` to create a vertical split",
         hint = "Space then | (pipe character)",
+        setup = function()
+          state.initial_win_count = #vim.api.nvim_list_wins()
+          state.task_ready = true
+        end,
         detect = function()
-          return #vim.api.nvim_list_wins() >= 2
+          if not state.task_ready then return false end
+          -- Must have ADDED a new window
+          return #vim.api.nvim_list_wins() > state.initial_win_count
         end,
       },
       {
@@ -848,7 +1012,19 @@ local practice_modules = {
         title = "Open Different File in Split",
         instruction = "In the new split, open app/utils.py so you can see both files",
         hint = "Use <leader>ff in the new window",
+        setup = function()
+          state.initial_files = {}
+          for _, win in ipairs(vim.api.nvim_list_wins()) do
+            local buf = vim.api.nvim_win_get_buf(win)
+            local name = vim.api.nvim_buf_get_name(buf)
+            if name:find("utils%.py") then state.initial_files.utils = true end
+          end
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
+          -- Must have opened utils.py that wasn't open before
+          if state.initial_files.utils then return false end
           local files = {}
           for _, win in ipairs(vim.api.nvim_list_wins()) do
             local buf = vim.api.nvim_win_get_buf(win)
@@ -866,8 +1042,10 @@ local practice_modules = {
         hint = "Ctrl+h = left window, Ctrl+l = right window",
         setup = function()
           state.initial_win = vim.api.nvim_get_current_win()
+          state.task_ready = true
         end,
         detect = function()
+          if not state.task_ready then return false end
           return state.initial_win and vim.api.nvim_get_current_win() ~= state.initial_win
         end,
       },
@@ -876,8 +1054,14 @@ local practice_modules = {
         title = "Close Current Split",
         instruction = "Close the current window with `<leader>wd`",
         hint = "Space+w+d closes window (buffer stays open)",
+        setup = function()
+          state.initial_win_count = #vim.api.nvim_list_wins()
+          state.task_ready = true
+        end,
         detect = function()
-          return #vim.api.nvim_list_wins() == 1
+          if not state.task_ready then return false end
+          -- Must have REDUCED window count
+          return #vim.api.nvim_list_wins() < state.initial_win_count
         end,
       },
       {
@@ -887,8 +1071,10 @@ local practice_modules = {
         hint = "Shift+h = previous buffer, Shift+l = next buffer",
         setup = function()
           state.initial_buf = vim.api.nvim_get_current_buf()
+          state.task_ready = true
         end,
         detect = function()
+          if not state.task_ready then return false end
           return state.initial_buf and vim.api.nvim_get_current_buf() ~= state.initial_buf
         end,
       },
@@ -897,7 +1083,20 @@ local practice_modules = {
         title = "View All Open Buffers",
         instruction = "Press `<leader>fb` to see all open buffers and select one",
         hint = "Space+f+b shows buffer picker",
+        setup = function()
+          state.had_telescope = false
+          for _, win in ipairs(vim.api.nvim_list_wins()) do
+            local buf = vim.api.nvim_win_get_buf(win)
+            local ft = vim.api.nvim_buf_get_option(buf, "filetype")
+            if ft == "TelescopePrompt" then
+              state.had_telescope = true
+            end
+          end
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
+          if state.had_telescope then return false end
           for _, win in ipairs(vim.api.nvim_list_wins()) do
             local buf = vim.api.nvim_win_get_buf(win)
             local ft = vim.api.nvim_buf_get_option(buf, "filetype")
@@ -921,7 +1120,20 @@ local practice_modules = {
         title = "Open File Explorer",
         instruction = "Press `<leader>e` to open the file explorer sidebar",
         hint = "Space+e toggles the file tree",
+        setup = function()
+          state.had_explorer = false
+          for _, win in ipairs(vim.api.nvim_list_wins()) do
+            local buf = vim.api.nvim_win_get_buf(win)
+            local ft = vim.api.nvim_buf_get_option(buf, "filetype")
+            if ft == "neo-tree" or ft == "NvimTree" then
+              state.had_explorer = true
+            end
+          end
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
+          if state.had_explorer then return false end
           for _, win in ipairs(vim.api.nvim_list_wins()) do
             local buf = vim.api.nvim_win_get_buf(win)
             local ft = vim.api.nvim_buf_get_option(buf, "filetype")
@@ -937,10 +1149,15 @@ local practice_modules = {
         title = "Navigate to tests folder",
         instruction = "In the explorer, use `j/k` to navigate and find the 'tests' folder",
         hint = "j = down, k = up, Enter opens folder",
+        setup = function()
+          state.initial_line = vim.api.nvim_get_current_line()
+          state.task_ready = true
+        end,
         detect = function()
-          -- Detect if tests folder is focused or expanded
+          if not state.task_ready then return false end
           local line = vim.api.nvim_get_current_line()
-          return line:find("test") ~= nil
+          -- Must have navigated to a different line containing "test"
+          return line:find("test") ~= nil and line ~= state.initial_line
         end,
       },
       {
@@ -948,9 +1165,15 @@ local practice_modules = {
         title = "Open Test File",
         instruction = "Open tests/test_main.py from the explorer",
         hint = "Navigate to test_main.py and press Enter",
+        setup = function()
+          state.initial_file = vim.api.nvim_buf_get_name(0)
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local name = vim.api.nvim_buf_get_name(0)
-          return name:find("test_main%.py") ~= nil
+          -- Must have CHANGED to test_main.py
+          return name:find("test_main%.py") ~= nil and not state.initial_file:find("test_main%.py")
         end,
       },
       {
@@ -958,12 +1181,26 @@ local practice_modules = {
         title = "Close File Explorer",
         instruction = "Press `<leader>e` again to close the explorer",
         hint = "Same key toggles it closed",
-        detect = function()
+        setup = function()
+          state.had_explorer = false
           for _, win in ipairs(vim.api.nvim_list_wins()) do
             local buf = vim.api.nvim_win_get_buf(win)
             local ft = vim.api.nvim_buf_get_option(buf, "filetype")
             if ft == "neo-tree" or ft == "NvimTree" then
-              return false  -- Explorer still open
+              state.had_explorer = true
+            end
+          end
+          state.task_ready = true
+        end,
+        detect = function()
+          if not state.task_ready then return false end
+          -- Must have HAD explorer and now NOT have it
+          if not state.had_explorer then return false end
+          for _, win in ipairs(vim.api.nvim_list_wins()) do
+            local buf = vim.api.nvim_win_get_buf(win)
+            local ft = vim.api.nvim_buf_get_option(buf, "filetype")
+            if ft == "neo-tree" or ft == "NvimTree" then
+              return false
             end
           end
           return true
@@ -982,9 +1219,15 @@ local practice_modules = {
         title = "Open main.py for LSP Practice",
         instruction = "Open app/main.py",
         hint = "<leader>ff then 'main'",
+        setup = function()
+          state.initial_file = vim.api.nvim_buf_get_name(0)
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local name = vim.api.nvim_buf_get_name(0)
-          return name:find("main%.py") ~= nil
+          -- Must have CHANGED to main.py
+          return name:find("main%.py") ~= nil and not state.initial_file:find("main%.py")
         end,
       },
       {
@@ -992,14 +1235,27 @@ local practice_modules = {
         title = "View Function Signature",
         instruction = "Go to a `db.insert()` call, position cursor inside the parens, press `gK` or `K` for signature help",
         hint = "Navigate to db.insert(...), cursor between (), then K",
-        detect = function()
+        setup = function()
+          state.initial_float_count = 0
           for _, win in ipairs(vim.api.nvim_list_wins()) do
             local config = vim.api.nvim_win_get_config(win)
             if config.relative ~= "" then
-              return true
+              state.initial_float_count = state.initial_float_count + 1
             end
           end
-          return false
+          state.task_ready = true
+        end,
+        detect = function()
+          if not state.task_ready then return false end
+          local current_float_count = 0
+          for _, win in ipairs(vim.api.nvim_list_wins()) do
+            local config = vim.api.nvim_win_get_config(win)
+            if config.relative ~= "" then
+              current_float_count = current_float_count + 1
+            end
+          end
+          -- Must have opened a NEW float
+          return current_float_count > state.initial_float_count
         end,
       },
       {
@@ -1007,15 +1263,27 @@ local practice_modules = {
         title = "View Code Actions",
         instruction = "Press `<leader>ca` to see available code actions at cursor position",
         hint = "Space+c+a shows LSP code actions (organize imports, extract, etc.)",
-        detect = function()
-          -- Check for floating window or menu
+        setup = function()
+          state.initial_float_count = 0
           for _, win in ipairs(vim.api.nvim_list_wins()) do
             local config = vim.api.nvim_win_get_config(win)
             if config.relative ~= "" then
-              return true
+              state.initial_float_count = state.initial_float_count + 1
             end
           end
-          return false
+          state.task_ready = true
+        end,
+        detect = function()
+          if not state.task_ready then return false end
+          local current_float_count = 0
+          for _, win in ipairs(vim.api.nvim_list_wins()) do
+            local config = vim.api.nvim_win_get_config(win)
+            if config.relative ~= "" then
+              current_float_count = current_float_count + 1
+            end
+          end
+          -- Must have opened a NEW float (code action menu)
+          return current_float_count > state.initial_float_count
         end,
       },
       {
@@ -1023,9 +1291,17 @@ local practice_modules = {
         title = "Navigate to Next Error/Warning",
         instruction = "Press `]d` to jump to the next diagnostic (error/warning)",
         hint = "]d = next diagnostic, [d = previous",
+        setup = function()
+          state.initial_line = vim.api.nvim_win_get_cursor(0)[1]
+          state.initial_col = vim.api.nvim_win_get_cursor(0)[2]
+          state.task_ready = true
+        end,
         detect = function()
-          -- Just detect that navigation happened
-          return true  -- This one auto-completes as it's about learning the keybind
+          if not state.task_ready then return false end
+          local line = vim.api.nvim_win_get_cursor(0)[1]
+          local col = vim.api.nvim_win_get_cursor(0)[2]
+          -- Must have MOVED (diagnostic navigation changes position)
+          return line ~= state.initial_line or col ~= state.initial_col
         end,
       },
       {
@@ -1033,9 +1309,25 @@ local practice_modules = {
         title = "Format the File",
         instruction = "Press `<leader>cf` to format the current file",
         hint = "Space+c+f runs the formatter",
+        setup = function()
+          state.initial_buffer_content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+          state.format_triggered = false
+          -- Also track TextChanged events to detect formatting
+          vim.api.nvim_create_autocmd("TextChanged", {
+            group = state.autocommand_group,
+            buffer = 0,
+            once = true,
+            callback = function()
+              state.format_triggered = true
+            end,
+          })
+          state.task_ready = true
+        end,
         detect = function()
-          -- Formatting happened if buffer was modified
-          return vim.bo.modified == false or true  -- Auto-complete for learning
+          if not state.task_ready then return false end
+          -- Formatting either changed the buffer or triggered TextChanged
+          local content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+          return state.format_triggered or content ~= state.initial_buffer_content
         end,
       },
     },
@@ -1051,7 +1343,18 @@ local practice_modules = {
         title = "Open Integrated Terminal",
         instruction = "Press `<C-/>` (Ctrl+/) or `<leader>ft` to open the terminal",
         hint = "Ctrl and / together opens floating terminal",
+        setup = function()
+          state.had_terminal = false
+          for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+            if vim.api.nvim_buf_get_option(buf, "buftype") == "terminal" then
+              state.had_terminal = true
+            end
+          end
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
+          if state.had_terminal then return false end
           for _, buf in ipairs(vim.api.nvim_list_bufs()) do
             if vim.api.nvim_buf_get_option(buf, "buftype") == "terminal" then
               return true
@@ -1065,9 +1368,22 @@ local practice_modules = {
         title = "Exit Terminal Mode",
         instruction = "Press `<Esc><Esc>` (Escape twice) to exit terminal insert mode",
         hint = "Double Escape returns to normal mode in terminal",
+        setup = function()
+          state.initial_mode = vim.api.nvim_get_mode().mode
+          state.task_ready = true
+        end,
         detect = function()
+          if not state.task_ready then return false end
           local mode = vim.api.nvim_get_mode().mode
-          return mode == "n" or mode == "nt"
+          -- Must have been in terminal mode and now in normal mode
+          local was_terminal = state.initial_mode == "t" or state.initial_mode == "nt"
+          local is_normal = mode == "n" or mode == "nt"
+          -- If started in terminal mode, require switch to normal
+          if was_terminal then
+            return is_normal and mode ~= state.initial_mode
+          end
+          -- If already in normal, any mode change counts
+          return mode ~= state.initial_mode
         end,
       },
       {
@@ -1075,8 +1391,20 @@ local practice_modules = {
         title = "Close the Terminal",
         instruction = "Press `<C-/>` again to toggle the terminal closed",
         hint = "Same keybind toggles it",
+        setup = function()
+          state.had_visible_terminal = false
+          for _, win in ipairs(vim.api.nvim_list_wins()) do
+            local buf = vim.api.nvim_win_get_buf(win)
+            if vim.api.nvim_buf_get_option(buf, "buftype") == "terminal" then
+              state.had_visible_terminal = true
+            end
+          end
+          state.task_ready = true
+        end,
         detect = function()
-          -- Check no visible terminal
+          if not state.task_ready then return false end
+          -- Must have HAD visible terminal and now NOT have it
+          if not state.had_visible_terminal then return false end
           for _, win in ipairs(vim.api.nvim_list_wins()) do
             local buf = vim.api.nvim_win_get_buf(win)
             if vim.api.nvim_buf_get_option(buf, "buftype") == "terminal" then
@@ -1157,6 +1485,29 @@ local function show_instruction()
   if state.popup_win and vim.api.nvim_win_is_valid(state.popup_win) then
     vim.api.nvim_win_close(state.popup_win, true)
   end
+
+  -- Reset task state before showing new task
+  state.task_ready = false
+  state.initial_line = nil
+  state.initial_file = nil
+  state.initial_buffer_content = nil
+  state.initial_float_count = nil
+  state.initial_search = nil
+  state.had_telescope = nil
+  state.undo_count = nil
+  state.initial_reg = nil
+  state.initial_hlsearch = nil
+  state.initial_task_id_count = nil
+  state.initial_win_count = nil
+  state.initial_files = nil
+  state.initial_win = nil
+  state.initial_buf = nil
+  state.had_explorer = nil
+  state.initial_col = nil
+  state.format_triggered = nil
+  state.had_terminal = nil
+  state.initial_mode = nil
+  state.had_visible_terminal = nil
 
   local task = get_current_task()
   if not task then return end
