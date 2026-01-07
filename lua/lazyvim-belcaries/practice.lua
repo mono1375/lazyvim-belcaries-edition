@@ -16,6 +16,9 @@ local state = {
   popup_win = nil,
   popup_buf = nil,
   autocommand_group = nil,
+  -- Detection control
+  task_ready = false,      -- Set by setup(), checked by detect()
+  transitioning = false,   -- Blocks detection during task transitions
   -- Detection helpers
   initial_buffer_content = nil,
   initial_line_count = nil,
@@ -1488,6 +1491,7 @@ local function show_instruction()
 
   -- Reset task state before showing new task
   state.task_ready = false
+  state.transitioning = false
   state.initial_line = nil
   state.initial_file = nil
   state.initial_buffer_content = nil
@@ -1604,6 +1608,10 @@ end
 -- ============================================================================
 
 local function next_task()
+  -- IMMEDIATELY disable detection to prevent race conditions
+  state.task_ready = false
+  state.transitioning = true
+
   local task = get_current_task()
   if task then
     state.completed_tasks[task.id] = true
@@ -1627,7 +1635,10 @@ local function next_task()
     vim.notify("📂 Starting: " .. new_module.name, vim.log.levels.INFO)
   end
 
-  vim.defer_fn(show_instruction, 200)
+  vim.defer_fn(function()
+    state.transitioning = false
+    show_instruction()
+  end, 200)
 end
 
 local function prev_module()
@@ -1648,6 +1659,8 @@ end
 
 local function check_task_completion()
   if not state.active then return end
+  if state.transitioning then return end  -- Block during task transitions
+  if not state.task_ready then return end  -- Block until setup() has run
 
   local task = get_current_task()
   if not task then return end
