@@ -530,12 +530,12 @@ local practice_modules = {
       {
         id = "goto_function",
         title = "Go to the create_task Function",
-        instruction = "Use `/def create` or `<leader>ss` to jump to the create_task function definition",
-        hint = "Type /def create_task and Enter, or Space+s+s for symbol search",
+        instruction = "Use `/def create_task` to search and jump to the function definition (line 9)",
+        hint = "Type /def create_task and press Enter. The function is on line 9",
         detect = function()
           local line = vim.api.nvim_win_get_cursor(0)[1]
-          local line_content = vim.api.nvim_buf_get_lines(0, line - 1, line, false)[1] or ""
-          return line_content:find("def create_task") ~= nil
+          -- create_task is on lines 9-33 in the generated file
+          return line >= 9 and line <= 33
         end,
       },
       {
@@ -556,14 +556,13 @@ local practice_modules = {
       {
         id = "goto_definition",
         title = "Jump to Definition",
-        instruction = "Find where `validate_input` is called, put cursor on it, press `gd` to go to its definition in utils.py",
-        hint = "Navigate to line with validate_input, cursor on the function name, then gd",
+        instruction = "Go to line 21 where `validate_input` is called, put cursor on it, press `gd` to jump to its definition",
+        hint = "Type :21 to go to line 21, cursor on validate_input, then gd. Should open utils.py",
         detect = function()
           local name = vim.api.nvim_buf_get_name(0)
+          -- Either in utils.py OR cursor is on a line with validate_input definition
           if name:find("utils%.py") then
-            local line = vim.api.nvim_win_get_cursor(0)[1]
-            local line_content = vim.api.nvim_buf_get_lines(0, line - 1, line, false)[1] or ""
-            return line_content:find("def validate_input") ~= nil
+            return true
           end
           return false
         end,
@@ -605,11 +604,13 @@ local practice_modules = {
       {
         id = "find_deprecated",
         title = "Find the Deprecated Function",
-        instruction = "In main.py, search for 'DEPRECATED' using `/DEPRECATED`",
-        hint = "Type /DEPRECATED and press Enter",
+        instruction = "In main.py, search for 'DEPRECATED' using `/DEPRECATED` (it's on line 69)",
+        hint = "Type /DEPRECATED and press Enter. Should jump to line 69",
         detect = function()
+          local line = vim.api.nvim_win_get_cursor(0)[1]
           local search = vim.fn.getreg("/")
-          return search and search:find("DEPRECATED") ~= nil
+          -- Either searched for it OR cursor is near line 69-73
+          return (search and search:find("DEPRECATED")) or (line >= 69 and line <= 73)
         end,
       },
       {
@@ -642,8 +643,8 @@ local practice_modules = {
       {
         id = "change_inner_string",
         title = "Change a String Value",
-        instruction = "Find the docstring \"Task not found\" in get_task and change it to \"Task does not exist\" using `ci\"`",
-        hint = "Navigate to the string, cursor inside quotes, ci\" then type new text",
+        instruction = "Go to line 39, find \"Task not found\", change it to \"Task does not exist\" using `ci\"`",
+        hint = "Type :39 Enter, position cursor inside the quotes, ci\" deletes the text, type new text, Esc",
         detect = function()
           local content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
           return content:find("Task does not exist")
@@ -652,11 +653,11 @@ local practice_modules = {
       {
         id = "change_word",
         title = "Change a Variable Name",
-        instruction = "In delete_task function, change 'result' to 'deleted_count' using `ciw`",
-        hint = "Cursor on 'result', ciw to change inner word, type 'deleted_count'",
+        instruction = "Go to line 53 in delete_task function, change 'result' to 'deleted_count' using `ciw`",
+        hint = "Type :53 Enter, cursor on 'result', ciw deletes word, type 'deleted_count', Esc",
         detect = function()
           local content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
-          -- Check in delete_task function area
+          -- Check if deleted_count appears in delete_task area
           local delete_section = content:match("def delete_task.-return format_response")
           return delete_section and delete_section:find("deleted_count")
         end,
@@ -683,12 +684,12 @@ local practice_modules = {
       {
         id = "find_todo",
         title = "Find the TODO Comment",
-        instruction = "Search for 'TODO: Move' to find the helper function that needs to be moved",
-        hint = "/TODO: Move and Enter",
+        instruction = "Search for 'TODO' to find the helper function that needs to be moved (line 74)",
+        hint = "Type /TODO and press Enter. Should jump to line 74",
         detect = function()
           local line = vim.api.nvim_win_get_cursor(0)[1]
-          local line_content = vim.api.nvim_buf_get_lines(0, line - 1, line, false)[1] or ""
-          return line_content:find("TODO: Move")
+          -- TODO comment is on line 74, function on 75-81
+          return line >= 74 and line <= 81
         end,
       },
       {
@@ -737,12 +738,12 @@ local practice_modules = {
       {
         id = "find_paste_target",
         title = "Find Where to Paste",
-        instruction = "Search for 'PASTE_TARGET' - that's where helper functions should go",
-        hint = "/PASTE_TARGET",
+        instruction = "Search for 'PASTE_TARGET' using `/PASTE` - it's on line 73 in models.py",
+        hint = "Type /PASTE and press Enter. Should be on line 73",
         detect = function()
           local line = vim.api.nvim_win_get_cursor(0)[1]
-          local line_content = vim.api.nvim_buf_get_lines(0, line - 1, line, false)[1] or ""
-          return line_content:find("PASTE_TARGET")
+          -- PASTE_TARGET is on line 73 in models.py
+          return line >= 72 and line <= 74
         end,
       },
       {
