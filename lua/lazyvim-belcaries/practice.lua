@@ -594,14 +594,18 @@ local practice_modules = {
         instruction = "Use `/def create_task` to search and jump to the function definition (line 9)",
         hint = "Type /def create_task and press Enter. The function is on line 9",
         setup = function()
-          state.initial_line = vim.api.nvim_win_get_cursor(0)[1]
+          state.initial_search = vim.fn.getreg("/") or ""
           state.task_ready = true
         end,
         detect = function()
           if not state.task_ready then return false end
+          -- Must have SEARCHED for "def create_task" (not just moved cursor)
+          local search = vim.fn.getreg("/") or ""
+          local searched_for_create = search:find("def create_task") or search:find("create_task")
+          local is_new_search = search ~= state.initial_search
           local line = vim.api.nvim_win_get_cursor(0)[1]
-          -- Must have MOVED to lines 9-15 (the function signature area)
-          return line >= 9 and line <= 15 and line ~= state.initial_line
+          -- SUCCESS: Used search AND ended up on the right line
+          return searched_for_create and is_new_search and line >= 9 and line <= 50
         end,
       },
       {
