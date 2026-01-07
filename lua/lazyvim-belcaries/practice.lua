@@ -557,9 +557,9 @@ local practice_modules = {
         instruction = "Press `K` on the function name to see its docstring",
         hint = "Cursor on 'create_task', then press K (capital)",
         setup = function()
+          -- Snapshot float count at task start
           state.initial_float_count = 0
           for _, win in ipairs(vim.api.nvim_list_wins()) do
-            -- Skip our own practice popup
             if win ~= state.popup_win then
               local config = vim.api.nvim_win_get_config(win)
               if config.relative ~= "" then
@@ -567,14 +567,15 @@ local practice_modules = {
               end
             end
           end
-          state.initial_line = vim.api.nvim_win_get_cursor(0)[1]
           state.task_ready = true
         end,
         detect = function()
           if not state.task_ready then return false end
+          -- SUCCESS: A new floating window appeared (hover docs)
+          -- User can move cursor, position themselves - doesn't matter
+          -- ONLY a new float triggers success
           local current_float_count = 0
           for _, win in ipairs(vim.api.nvim_list_wins()) do
-            -- Skip our own practice popup
             if win ~= state.popup_win then
               local config = vim.api.nvim_win_get_config(win)
               if config.relative ~= "" then
@@ -582,29 +583,9 @@ local practice_modules = {
               end
             end
           end
-          -- SUCCESS: A new floating window appeared (hover docs)
           return current_float_count > state.initial_float_count
         end,
-        detect_fail = function()
-          if not state.task_ready then return false end
-          local line = vim.api.nvim_win_get_cursor(0)[1]
-          -- Count current floats
-          local current_float_count = 0
-          for _, win in ipairs(vim.api.nvim_list_wins()) do
-            if win ~= state.popup_win then
-              local config = vim.api.nvim_win_get_config(win)
-              if config.relative ~= "" then
-                current_float_count = current_float_count + 1
-              end
-            end
-          end
-          -- FAIL: Cursor moved but NO new float appeared
-          -- (user pressed k/j instead of K)
-          if line ~= state.initial_line and current_float_count <= state.initial_float_count then
-            return true
-          end
-          return false
-        end,
+        -- No detect_fail: user can position, try things, only K success matters
       },
       {
         id = "goto_definition",
@@ -1734,15 +1715,9 @@ local function check_task_completion()
   local task = get_current_task()
   if not task then return end
 
-  -- Check for failure first (wrong action)
-  if task.detect_fail and task.detect_fail() then
-    state.completion_pending = true
-    state.task_ready = false
-    vim.defer_fn(restart_task, 100)
-    return
-  end
-
-  -- Check for success
+  -- ONLY check for success - the SPECIFIC action this task requires
+  -- Preparatory actions (moving cursor, positioning) are ignored
+  -- User keeps trying until they do the exact right thing
   if task.detect and task.detect() then
     -- IMMEDIATELY block further completions before defer
     state.completion_pending = true
