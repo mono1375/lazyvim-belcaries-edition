@@ -4,6 +4,9 @@
 
 local M = {}
 
+-- Load the new practice module
+local practice = require("lazyvim-belcaries.practice")
+
 -- State management
 local state = {
   current_lesson = 1,
@@ -778,9 +781,15 @@ function M.show_menu()
   table.insert(lines, "  KEYBINDINGS:")
   table.insert(lines, "    <leader>ht  This menu")
   table.insert(lines, "    <leader>hh  Quick reference (all keymaps)")
-  table.insert(lines, "    <leader>hp  Practice mode (random quiz)")
+  table.insert(lines, "    <leader>hp  COMPREHENSIVE PRACTICE")
+  table.insert(lines, "    <leader>hq  Keybinding quiz")
   table.insert(lines, "    <leader>hn  Next lesson")
   table.insert(lines, "    <leader>hb  Previous lesson")
+  table.insert(lines, "")
+  table.insert(lines, "  COMPREHENSIVE PRACTICE (<leader>hp):")
+  table.insert(lines, "  Work on a real Python/Go/JS project while learning")
+  table.insert(lines, "  ALL keybindings: movement, editing, visual mode,")
+  table.insert(lines, "  search, LSP, git, terminal - 11 modules, 60+ tasks!")
   table.insert(lines, "")
   table.insert(lines, "  TIP: Press <leader>sk to search all keymaps!")
   table.insert(lines, "")
@@ -845,52 +854,10 @@ function M.quick_reference()
   create_popup(lines, "Quick Reference", { width = 75, height = 45 })
 end
 
--- Practice mode for a section
+-- Practice mode for a section - now launches comprehensive practice
 function M.practice_section(lesson_idx, section_idx)
-  local lesson = lessons[lesson_idx]
-  local section = lesson.sections[section_idx]
-
-  local lines = {
-    "",
-    "  PRACTICE MODE",
-    "  =============",
-    "",
-    "  Lesson: " .. lesson.title,
-    "  Section: " .. section.name,
-    "",
-    "  Practice each keybinding below:",
-    "  " .. string.rep("-", 60),
-    "",
-  }
-
-  for i, key in ipairs(section.keys) do
-    table.insert(lines, string.format("  %2d. Try: %-18s -> %s", i, key.key, key.practice))
-  end
-
-  table.insert(lines, "")
-  table.insert(lines, "  " .. string.rep("-", 60))
-  table.insert(lines, "")
-  table.insert(lines, "  Instructions:")
-  table.insert(lines, "  1. Close this popup (q)")
-  table.insert(lines, "  2. Try each command in the editor")
-  table.insert(lines, "  3. Press <leader>ht to return to tutorial")
-  table.insert(lines, "")
-  table.insert(lines, "  Tips:")
-  table.insert(lines, "  - Press <Space> (leader) and wait for which-key hints")
-  table.insert(lines, "  - Press <leader>sk to search keymaps")
-  table.insert(lines, "")
-  table.insert(lines, "  Press 'm' to mark this section complete")
-  table.insert(lines, "")
-
-  local buf, win = create_popup(lines, "Practice: " .. section.name, { height = 35, width = 70 })
-
-  vim.keymap.set("n", "m", function()
-    state.completed_lessons[tostring(lesson_idx)] = true
-    save_progress()
-    vim.notify("Section marked complete!", vim.log.levels.INFO)
-    vim.api.nvim_win_close(win, true)
-    M.show_lesson(lesson_idx, section_idx)
-  end, { buffer = buf, silent = true })
+  -- Launch the comprehensive interactive practice
+  practice.select_project()
 end
 
 -- Navigate to next lesson
@@ -903,8 +870,13 @@ function M.prev_lesson()
   M.show_lesson(state.current_lesson - 1, 1)
 end
 
--- Interactive practice mode with randomized keys
+-- Interactive practice mode - launches real project practice
 function M.practice_mode()
+  practice.select_project()
+end
+
+-- Quiz mode with randomized keys (for review)
+function M.quiz_mode()
   -- Collect all keys
   local all_keys = {}
   for _, lesson in ipairs(lessons) do
@@ -938,8 +910,8 @@ function M.practice_mode()
 
   local lines = {
     "",
-    "  PRACTICE QUIZ",
-    "  =============",
+    "  KEYBINDING QUIZ",
+    "  ================",
     "",
     "  What key combination does this action?",
     "  Try to answer before looking!",
@@ -960,11 +932,11 @@ function M.practice_mode()
   table.insert(lines, "  Press q to close, <leader>ht for tutorial menu")
   table.insert(lines, "")
 
-  local buf, win = create_popup(lines, "Practice Quiz", { height = 42, width = 65 })
+  local buf, win = create_popup(lines, "Keybinding Quiz", { height = 42, width = 65 })
 
   vim.keymap.set("n", "r", function()
     vim.api.nvim_win_close(win, true)
-    M.practice_mode()
+    M.quiz_mode()
   end, { buffer = buf, silent = true })
 end
 

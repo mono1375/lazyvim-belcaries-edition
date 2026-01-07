@@ -17,4 +17,12 @@ end, { desc = "Show quick reference" })
 
 vim.api.nvim_create_user_command("BelcariesPractice", function()
   require("lazyvim-belcaries").practice_mode()
-end, { desc = "Start practice quiz" })
+end, { desc = "Start interactive practice (real project)" })
+
+vim.api.nvim_create_user_command("BelcariesQuiz", function()
+  require("lazyvim-belcaries").quiz_mode()
+end, { desc = "Start keybinding quiz" })
+
+vim.api.nvim_create_user_command("BelcariesStopPractice", function()
+  require("lazyvim-belcaries.practice").stop()
+end, { desc = "Stop current practice session" })
