@@ -567,6 +567,7 @@ local practice_modules = {
               end
             end
           end
+          state.initial_line = vim.api.nvim_win_get_cursor(0)[1]
           state.task_ready = true
         end,
         detect = function()
@@ -593,6 +594,34 @@ local practice_modules = {
           end
           -- Must have a NEW float that looks like documentation
           return current_float_count > state.initial_float_count and has_hover_window
+        end,
+        detect_fail = function()
+          if not state.task_ready then return false end
+          local line = vim.api.nvim_win_get_cursor(0)[1]
+          -- If cursor moved (user pressed k/j) but no hover appeared = FAIL
+          if line ~= state.initial_line then
+            -- Check if hover window appeared
+            local has_hover = false
+            for _, win in ipairs(vim.api.nvim_list_wins()) do
+              if win ~= state.popup_win then
+                local config = vim.api.nvim_win_get_config(win)
+                if config.relative ~= "" then
+                  local buf = vim.api.nvim_win_get_buf(win)
+                  local ft = vim.api.nvim_buf_get_option(buf, "filetype")
+                  local lines = vim.api.nvim_buf_get_lines(buf, 0, 5, false)
+                  local content = table.concat(lines, " ")
+                  if ft == "markdown" or ft == "help" or content:find("def ") or content:find("Args:") then
+                    has_hover = true
+                  end
+                end
+              end
+            end
+            -- Cursor moved but no hover = wrong action
+            if not has_hover then
+              return true
+            end
+          end
+          return false
         end,
       },
       {
@@ -1698,6 +1727,22 @@ end
 -- DETECTION SYSTEM
 -- ============================================================================
 
+local function restart_task()
+  -- Reset task state for retry
+  state.task_ready = false
+  state.completion_pending = false
+
+  vim.notify("✗ Wrong action! Try again.", vim.log.levels.WARN)
+
+  -- Re-run setup after a brief delay
+  vim.defer_fn(function()
+    local task = get_current_task()
+    if task and task.setup then
+      task.setup()
+    end
+  end, 300)
+end
+
 local function check_task_completion()
   if not state.active then return end
   if state.transitioning then return end  -- Block during task transitions
@@ -1707,6 +1752,15 @@ local function check_task_completion()
   local task = get_current_task()
   if not task then return end
 
+  -- Check for failure first (wrong action)
+  if task.detect_fail and task.detect_fail() then
+    state.completion_pending = true
+    state.task_ready = false
+    vim.defer_fn(restart_task, 100)
+    return
+  end
+
+  -- Check for success
   if task.detect and task.detect() then
     -- IMMEDIATELY block further completions before defer
     state.completion_pending = true
