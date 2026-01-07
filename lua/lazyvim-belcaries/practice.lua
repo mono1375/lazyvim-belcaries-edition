@@ -559,9 +559,12 @@ local practice_modules = {
         setup = function()
           state.initial_float_count = 0
           for _, win in ipairs(vim.api.nvim_list_wins()) do
-            local config = vim.api.nvim_win_get_config(win)
-            if config.relative ~= "" then
-              state.initial_float_count = state.initial_float_count + 1
+            -- Skip our own practice popup
+            if win ~= state.popup_win then
+              local config = vim.api.nvim_win_get_config(win)
+              if config.relative ~= "" then
+                state.initial_float_count = state.initial_float_count + 1
+              end
             end
           end
           state.task_ready = true
@@ -569,14 +572,27 @@ local practice_modules = {
         detect = function()
           if not state.task_ready then return false end
           local current_float_count = 0
+          local has_hover_window = false
           for _, win in ipairs(vim.api.nvim_list_wins()) do
-            local config = vim.api.nvim_win_get_config(win)
-            if config.relative ~= "" then
-              current_float_count = current_float_count + 1
+            -- Skip our own practice popup
+            if win ~= state.popup_win then
+              local config = vim.api.nvim_win_get_config(win)
+              if config.relative ~= "" then
+                current_float_count = current_float_count + 1
+                -- Check if it looks like a hover/documentation window
+                local buf = vim.api.nvim_win_get_buf(win)
+                local ft = vim.api.nvim_buf_get_option(buf, "filetype")
+                local lines = vim.api.nvim_buf_get_lines(buf, 0, 5, false)
+                local content = table.concat(lines, " ")
+                -- LSP hover typically shows markdown or has docstring content
+                if ft == "markdown" or ft == "help" or content:find("def ") or content:find("Args:") or content:find("Returns:") or content:find("```") then
+                  has_hover_window = true
+                end
+              end
             end
           end
-          -- A NEW floating window must have appeared
-          return current_float_count > state.initial_float_count
+          -- Must have a NEW float that looks like documentation
+          return current_float_count > state.initial_float_count and has_hover_window
         end,
       },
       {
@@ -1242,9 +1258,11 @@ local practice_modules = {
         setup = function()
           state.initial_float_count = 0
           for _, win in ipairs(vim.api.nvim_list_wins()) do
-            local config = vim.api.nvim_win_get_config(win)
-            if config.relative ~= "" then
-              state.initial_float_count = state.initial_float_count + 1
+            if win ~= state.popup_win then
+              local config = vim.api.nvim_win_get_config(win)
+              if config.relative ~= "" then
+                state.initial_float_count = state.initial_float_count + 1
+              end
             end
           end
           state.task_ready = true
@@ -1252,14 +1270,24 @@ local practice_modules = {
         detect = function()
           if not state.task_ready then return false end
           local current_float_count = 0
+          local has_signature_window = false
           for _, win in ipairs(vim.api.nvim_list_wins()) do
-            local config = vim.api.nvim_win_get_config(win)
-            if config.relative ~= "" then
-              current_float_count = current_float_count + 1
+            if win ~= state.popup_win then
+              local config = vim.api.nvim_win_get_config(win)
+              if config.relative ~= "" then
+                current_float_count = current_float_count + 1
+                -- Check for signature/hover content
+                local buf = vim.api.nvim_win_get_buf(win)
+                local ft = vim.api.nvim_buf_get_option(buf, "filetype")
+                local lines = vim.api.nvim_buf_get_lines(buf, 0, 5, false)
+                local content = table.concat(lines, " ")
+                if ft == "markdown" or ft == "help" or content:find("def ") or content:find("%(") or content:find("Args:") then
+                  has_signature_window = true
+                end
+              end
             end
           end
-          -- Must have opened a NEW float
-          return current_float_count > state.initial_float_count
+          return current_float_count > state.initial_float_count and has_signature_window
         end,
       },
       {
@@ -1270,9 +1298,11 @@ local practice_modules = {
         setup = function()
           state.initial_float_count = 0
           for _, win in ipairs(vim.api.nvim_list_wins()) do
-            local config = vim.api.nvim_win_get_config(win)
-            if config.relative ~= "" then
-              state.initial_float_count = state.initial_float_count + 1
+            if win ~= state.popup_win then
+              local config = vim.api.nvim_win_get_config(win)
+              if config.relative ~= "" then
+                state.initial_float_count = state.initial_float_count + 1
+              end
             end
           end
           state.task_ready = true
@@ -1280,14 +1310,23 @@ local practice_modules = {
         detect = function()
           if not state.task_ready then return false end
           local current_float_count = 0
+          local has_menu_window = false
           for _, win in ipairs(vim.api.nvim_list_wins()) do
-            local config = vim.api.nvim_win_get_config(win)
-            if config.relative ~= "" then
-              current_float_count = current_float_count + 1
+            if win ~= state.popup_win then
+              local config = vim.api.nvim_win_get_config(win)
+              if config.relative ~= "" then
+                current_float_count = current_float_count + 1
+                -- Code action menus have selectable items
+                local buf = vim.api.nvim_win_get_buf(win)
+                local ft = vim.api.nvim_buf_get_option(buf, "filetype")
+                -- Code action windows are typically menus
+                if ft == "" or ft == "TelescopePrompt" or ft == "noice" then
+                  has_menu_window = true
+                end
+              end
             end
           end
-          -- Must have opened a NEW float (code action menu)
-          return current_float_count > state.initial_float_count
+          return current_float_count > state.initial_float_count and has_menu_window
         end,
       },
       {
