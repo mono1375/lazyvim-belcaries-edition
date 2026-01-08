@@ -594,21 +594,21 @@ local practice_modules = {
         instruction = "Use `/def create_task` to search and jump to the function definition (line 9)",
         hint = "Type /def create_task and press Enter. The function is on line 9",
         setup = function()
-          state.initial_search = vim.fn.getreg("/") or ""
+          -- Count search history entries at start
+          state.initial_search_count = vim.fn.histnr("search")
           state.task_ready = true
-          vim.notify("DEBUG setup: initial_search = '" .. state.initial_search .. "'", vim.log.levels.INFO)
         end,
         detect = function()
           if not state.task_ready then return false end
-          local search = vim.fn.getreg("/") or ""
 
-          -- DEBUG: Show what we're checking
-          vim.notify("DEBUG detect: search = '" .. search .. "', initial = '" .. (state.initial_search or "nil") .. "'", vim.log.levels.INFO)
-
-          -- SUCCESS: Search register contains "create_task" and is different from initial
-          if search ~= state.initial_search and search:lower():find("create_task") then
-            vim.notify("DEBUG: SUCCESS!", vim.log.levels.INFO)
-            return true
+          -- Check if new search was made
+          local current_count = vim.fn.histnr("search")
+          if current_count > state.initial_search_count then
+            -- Get the latest search from history
+            local latest_search = vim.fn.histget("search", -1) or ""
+            if latest_search:lower():find("create_task") then
+              return true
+            end
           end
           return false
         end,
