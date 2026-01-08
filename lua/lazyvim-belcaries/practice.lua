@@ -596,13 +596,18 @@ local practice_modules = {
         setup = function()
           state.initial_search = vim.fn.getreg("/") or ""
           state.task_ready = true
+          vim.notify("DEBUG setup: initial_search = '" .. state.initial_search .. "'", vim.log.levels.INFO)
         end,
         detect = function()
           if not state.task_ready then return false end
           local search = vim.fn.getreg("/") or ""
 
+          -- DEBUG: Show what we're checking
+          vim.notify("DEBUG detect: search = '" .. search .. "', initial = '" .. (state.initial_search or "nil") .. "'", vim.log.levels.INFO)
+
           -- SUCCESS: Search register contains "create_task" and is different from initial
           if search ~= state.initial_search and search:lower():find("create_task") then
+            vim.notify("DEBUG: SUCCESS!", vim.log.levels.INFO)
             return true
           end
           return false
