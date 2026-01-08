@@ -599,13 +599,13 @@ local practice_modules = {
         end,
         detect = function()
           if not state.task_ready then return false end
-          -- Must have SEARCHED for "def create_task" (not just moved cursor)
           local search = vim.fn.getreg("/") or ""
-          local searched_for_create = search:find("def create_task") or search:find("create_task")
-          local is_new_search = search ~= state.initial_search
-          local line = vim.api.nvim_win_get_cursor(0)[1]
-          -- SUCCESS: Used search AND ended up on the right line
-          return searched_for_create and is_new_search and line >= 9 and line <= 50
+
+          -- SUCCESS: Search register contains "create_task" and is different from initial
+          if search ~= state.initial_search and search:lower():find("create_task") then
+            return true
+          end
+          return false
         end,
       },
       {
