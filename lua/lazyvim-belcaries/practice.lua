@@ -6,6 +6,8 @@ local M = {}
 
 -- Bookmark file path
 local bookmark_file = vim.fn.stdpath("data") .. "/lazyvim-belcaries-bookmark.json"
+-- Feedback/Debug report file
+local feedback_file = vim.fn.stdpath("data") .. "/lazyvim-belcaries-feedback.json"
 
 -- Practice state
 local state = {
@@ -27,7 +29,256 @@ local state = {
   initial_buffer_content = nil,
   initial_line_count = nil,
   target_achieved = false,
+  -- Debug/Feedback mode
+  debug_mode = true,  -- Set to false for production
 }
+
+-- ============================================================================
+-- FEEDBACK SYSTEM - Bug reports, task issues, feature requests
+-- ============================================================================
+
+local feedback_data = {
+  task_issues = {},      -- Issues with specific tasks (from skips)
+  feature_requests = {}, -- General feature requests
+  session_log = {},      -- Debug log of task completions/failures
+}
+
+local function load_feedback()
+  local file = io.open(feedback_file, "r")
+  if file then
+    local content = file:read("*all")
+    file:close()
+    local ok, data = pcall(vim.fn.json_decode, content)
+    if ok and data then
+      feedback_data = vim.tbl_deep_extend("force", feedback_data, data)
+    end
+  end
+end
+
+local function save_feedback()
+  local json = vim.fn.json_encode(feedback_data)
+  local file = io.open(feedback_file, "w")
+  if file then
+    file:write(json)
+    file:close()
+  end
+end
+
+local function log_task_event(event_type, task_id, module_name, task_title, details)
+  table.insert(feedback_data.session_log, {
+    timestamp = os.date("%Y-%m-%d %H:%M:%S"),
+    event = event_type,
+    task_id = task_id,
+    module = module_name,
+    task = task_title,
+    details = details or "",
+  })
+  save_feedback()
+end
+
+local function add_task_issue(task_id, module_name, task_title, description)
+  table.insert(feedback_data.task_issues, {
+    timestamp = os.date("%Y-%m-%d %H:%M:%S"),
+    task_id = task_id,
+    module = module_name,
+    task = task_title,
+    issue = description,
+    status = "open",
+  })
+  save_feedback()
+end
+
+local function add_feature_request(description)
+  table.insert(feedback_data.feature_requests, {
+    timestamp = os.date("%Y-%m-%d %H:%M:%S"),
+    request = description,
+    status = "open",
+  })
+  save_feedback()
+end
+
+-- Show feedback input popup (for skip in debug mode or general feedback)
+local function show_feedback_input(feedback_type, task_info, callback)
+  local title = feedback_type == "skip" and " What went wrong? " or " Feedback / Feature Request "
+  local prompt_lines = {}
+
+  if feedback_type == "skip" and task_info then
+    prompt_lines = {
+      "",
+      "  Task: " .. (task_info.title or "Unknown"),
+      "  Module: " .. (task_info.module or "Unknown"),
+      "",
+      "  Describe the issue (press Enter when done):",
+      "  ─────────────────────────────────────────────",
+      "",
+    }
+  else
+    prompt_lines = {
+      "",
+      "  Share feedback or request a feature:",
+      "  ─────────────────────────────────────────────",
+      "",
+    }
+  end
+
+  local width = 55
+  local height = #prompt_lines + 3
+  local ui = vim.api.nvim_list_uis()[1]
+  local col = math.floor((ui.width - width) / 2)
+  local row = math.floor((ui.height - height) / 2)
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, prompt_lines)
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = width,
+    height = height,
+    col = col,
+    row = row,
+    style = "minimal",
+    border = "rounded",
+    title = title,
+    title_pos = "center",
+  })
+
+  -- Make buffer editable for input
+  vim.api.nvim_buf_set_option(buf, "modifiable", true)
+  vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
+
+  -- Position cursor at input area
+  vim.api.nvim_win_set_cursor(win, { #prompt_lines, 2 })
+  vim.cmd("startinsert")
+
+  -- Submit on Enter
+  vim.keymap.set("i", "<CR>", function()
+    local lines = vim.api.nvim_buf_get_lines(buf, #prompt_lines - 1, -1, false)
+    local input = table.concat(lines, " "):gsub("^%s+", ""):gsub("%s+$", "")
+    vim.cmd("stopinsert")
+    vim.api.nvim_win_close(win, true)
+    if callback then callback(input) end
+  end, { buffer = buf })
+
+  -- Cancel on Escape
+  vim.keymap.set({ "i", "n" }, "<Esc>", function()
+    vim.cmd("stopinsert")
+    vim.api.nvim_win_close(win, true)
+    if callback then callback(nil) end
+  end, { buffer = buf })
+end
+
+-- Show feedback report
+local function show_feedback_report()
+  load_feedback()
+
+  local lines = {
+    "",
+    "  FEEDBACK REPORT",
+    "  " .. string.rep("═", 50),
+    "",
+  }
+
+  -- Task Issues
+  table.insert(lines, "  TASK ISSUES (" .. #feedback_data.task_issues .. "):")
+  table.insert(lines, "  " .. string.rep("─", 50))
+  if #feedback_data.task_issues == 0 then
+    table.insert(lines, "  (none reported)")
+  else
+    for i, issue in ipairs(feedback_data.task_issues) do
+      table.insert(lines, "")
+      table.insert(lines, string.format("  %d. [%s] %s", i, issue.status, issue.task))
+      table.insert(lines, "     Module: " .. issue.module)
+      table.insert(lines, "     Issue: " .. issue.issue)
+      table.insert(lines, "     Time: " .. issue.timestamp)
+    end
+  end
+
+  table.insert(lines, "")
+  table.insert(lines, "  FEATURE REQUESTS (" .. #feedback_data.feature_requests .. "):")
+  table.insert(lines, "  " .. string.rep("─", 50))
+  if #feedback_data.feature_requests == 0 then
+    table.insert(lines, "  (none requested)")
+  else
+    for i, req in ipairs(feedback_data.feature_requests) do
+      table.insert(lines, "")
+      table.insert(lines, string.format("  %d. [%s] %s", i, req.status, req.request))
+      table.insert(lines, "     Time: " .. req.timestamp)
+    end
+  end
+
+  table.insert(lines, "")
+  table.insert(lines, "  SESSION LOG (last 10):")
+  table.insert(lines, "  " .. string.rep("─", 50))
+  local log_start = math.max(1, #feedback_data.session_log - 9)
+  for i = log_start, #feedback_data.session_log do
+    local entry = feedback_data.session_log[i]
+    table.insert(lines, string.format("  [%s] %s: %s", entry.event, entry.task, entry.details or ""))
+  end
+
+  table.insert(lines, "")
+  table.insert(lines, "  " .. string.rep("─", 50))
+  table.insert(lines, "  File: " .. feedback_file)
+  table.insert(lines, "  Press 'c' to clear | 'f' to add feedback | 'q' to close")
+  table.insert(lines, "")
+
+  local width = 60
+  local height = math.min(#lines, 35)
+  local ui = vim.api.nvim_list_uis()[1]
+  local col = math.floor((ui.width - width) / 2)
+  local row = math.floor((ui.height - height) / 2)
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_option(buf, "modifiable", false)
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = width,
+    height = height,
+    col = col,
+    row = row,
+    style = "minimal",
+    border = "rounded",
+    title = " Feedback Report ",
+    title_pos = "center",
+  })
+
+  vim.keymap.set("n", "q", function() vim.api.nvim_win_close(win, true) end, { buffer = buf })
+  vim.keymap.set("n", "<Esc>", function() vim.api.nvim_win_close(win, true) end, { buffer = buf })
+  vim.keymap.set("n", "c", function()
+    feedback_data = { task_issues = {}, feature_requests = {}, session_log = {} }
+    save_feedback()
+    vim.api.nvim_win_close(win, true)
+    vim.notify("Feedback cleared", vim.log.levels.INFO)
+  end, { buffer = buf })
+  vim.keymap.set("n", "f", function()
+    vim.api.nvim_win_close(win, true)
+    show_feedback_input("general", nil, function(input)
+      if input and #input > 0 then
+        add_feature_request(input)
+        vim.notify("Feedback saved!", vim.log.levels.INFO)
+      end
+    end)
+  end, { buffer = buf })
+end
+
+function M.show_feedback()
+  show_feedback_report()
+end
+
+function M.add_feedback()
+  show_feedback_input("general", nil, function(input)
+    if input and #input > 0 then
+      add_feature_request(input)
+      vim.notify("Feedback saved!", vim.log.levels.INFO)
+    end
+  end)
+end
+
+function M.toggle_debug_mode()
+  state.debug_mode = not state.debug_mode
+  vim.notify("Debug mode: " .. (state.debug_mode and "ON" or "OFF"), vim.log.levels.INFO)
+end
 
 -- ============================================================================
 -- BOOKMARK SYSTEM - Save/Load progress
@@ -1689,7 +1940,8 @@ local function show_instruction()
 
   table.insert(lines, "")
   table.insert(lines, "  " .. string.rep("─", 54))
-  table.insert(lines, "  <leader>ps = skip | <leader>pn = next module | <leader>pq = quit")
+  table.insert(lines, "  <leader>ps = skip | <leader>pn = next | <leader>pq = quit")
+  table.insert(lines, "  <leader>pf = feedback | <leader>pr = report")
   table.insert(lines, "")
 
   -- Progress bar
@@ -1743,15 +1995,16 @@ local function next_task()
   state.transitioning = true
 
   local task = get_current_task()
+  local module = practice_modules[state.current_module]
   if task then
     state.completed_tasks[task.id] = true
     state.total_completed = state.total_completed + 1
     vim.notify("✓ " .. task.title, vim.log.levels.INFO)
+    -- Log successful completion
+    log_task_event("COMPLETE", task.id, module.name, task.title, "Auto-detected")
   end
 
   state.current_task = state.current_task + 1
-
-  local module = practice_modules[state.current_module]
   if state.current_task > #module.tasks then
     state.current_task = 1
     state.current_module = state.current_module + 1
@@ -1861,6 +2114,19 @@ local function setup_autocommands()
   vim.keymap.set("n", "<leader>pb", function()
     if state.active then M.bookmark() end
   end, { desc = "Bookmark progress" })
+
+  -- Feedback keymaps (always available during practice)
+  vim.keymap.set("n", "<leader>pf", function()
+    M.add_feedback()
+  end, { desc = "Add feedback/feature request" })
+
+  vim.keymap.set("n", "<leader>pr", function()
+    M.show_feedback()
+  end, { desc = "Show feedback report" })
+
+  vim.keymap.set("n", "<leader>pd", function()
+    M.toggle_debug_mode()
+  end, { desc = "Toggle debug mode" })
 end
 
 local function clear_autocommands()
@@ -1874,6 +2140,9 @@ local function clear_autocommands()
   pcall(vim.keymap.del, "n", "<leader>pp")
   pcall(vim.keymap.del, "n", "<leader>pq")
   pcall(vim.keymap.del, "n", "<leader>pb")
+  pcall(vim.keymap.del, "n", "<leader>pf")
+  pcall(vim.keymap.del, "n", "<leader>pr")
+  pcall(vim.keymap.del, "n", "<leader>pd")
 end
 
 -- ============================================================================
@@ -1885,6 +2154,9 @@ function M.start(project_type, from_bookmark)
 
   local project_path = create_project(project_type)
   if not project_path then return end
+
+  -- Load existing feedback data
+  load_feedback()
 
   -- ALWAYS reset to fresh state
   state.active = true
@@ -1934,8 +2206,27 @@ end
 function M.skip_task()
   if not state.active then return end
   local task = get_current_task()
-  vim.notify("⏭ Skipped: " .. task.title, vim.log.levels.WARN)
-  next_task()
+  local module = practice_modules[state.current_module]
+
+  -- Log the skip event
+  log_task_event("SKIP", task.id, module.name, task.title, "User skipped task")
+
+  -- In debug mode, prompt for feedback
+  if state.debug_mode then
+    show_feedback_input("skip", { title = task.title, module = module.name }, function(input)
+      if input and #input > 0 then
+        add_task_issue(task.id, module.name, task.title, input)
+        vim.notify("Feedback saved! Skipping task...", vim.log.levels.INFO)
+      else
+        vim.notify("⏭ Skipped: " .. task.title, vim.log.levels.WARN)
+      end
+      next_task()
+    end)
+  else
+    -- Production mode: skip without prompt
+    vim.notify("⏭ Skipped: " .. task.title, vim.log.levels.WARN)
+    next_task()
+  end
 end
 
 function M.complete_practice()
