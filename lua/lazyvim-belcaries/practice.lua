@@ -1651,7 +1651,42 @@ local function show_instruction()
   table.insert(lines, "  └" .. string.rep("─", 54) .. "┘")
 
   table.insert(lines, "")
-  table.insert(lines, "  HINT: " .. task.hint)
+
+  -- Wrap hint text to fit popup width
+  local hint_prefix = "  HINT: "
+  local hint_text = task.hint
+  local hint_max_width = max_width - 2  -- Account for margins
+  local first_line = true
+
+  while #hint_text > 0 do
+    local available_width = first_line and (hint_max_width - #hint_prefix + 2) or hint_max_width
+    if #hint_text <= available_width then
+      if first_line then
+        table.insert(lines, hint_prefix .. hint_text)
+      else
+        table.insert(lines, "        " .. hint_text)  -- Indent continuation
+      end
+      break
+    end
+    local break_point = hint_text:sub(1, available_width):match(".*() ")
+    if break_point then
+      if first_line then
+        table.insert(lines, hint_prefix .. hint_text:sub(1, break_point - 1))
+      else
+        table.insert(lines, "        " .. hint_text:sub(1, break_point - 1))
+      end
+      hint_text = hint_text:sub(break_point + 1)
+    else
+      if first_line then
+        table.insert(lines, hint_prefix .. hint_text:sub(1, available_width))
+      else
+        table.insert(lines, "        " .. hint_text:sub(1, available_width))
+      end
+      hint_text = hint_text:sub(available_width + 1)
+    end
+    first_line = false
+  end
+
   table.insert(lines, "")
   table.insert(lines, "  " .. string.rep("─", 54))
   table.insert(lines, "  <leader>ps = skip | <leader>pn = next module | <leader>pq = quit")
