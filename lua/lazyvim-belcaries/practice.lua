@@ -651,17 +651,17 @@ local practice_modules = {
       },
       {
         id = "goto_definition",
-        title = "Jump to Definition",
-        instruction = "Go to line 21 where `validate_input` is called, put cursor on it, press `gd` to jump to its definition",
-        hint = "Type :21 to go to line 21, cursor on validate_input, then gd. Should open utils.py",
+        title = "Open the Utils Module",
+        instruction = "Use `<leader>ff` to find and open app/utils.py (where validate_input is defined)",
+        hint = "Press Space+f+f, type 'utils' and select app/utils.py",
         setup = function()
           state.initial_file = vim.api.nvim_buf_get_name(0)
           state.task_ready = true
         end,
         detect = function()
           if not state.task_ready then return false end
+          -- SUCCESS: utils.py is now open
           local name = vim.api.nvim_buf_get_name(0)
-          -- Must have CHANGED to utils.py
           return name:find("utils%.py") ~= nil and not state.initial_file:find("utils%.py")
         end,
       },
